@@ -31,3 +31,4 @@ def require_role(*allowed_roles):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user
     return role_checker
+
