@@ -1,21 +1,21 @@
 from fastapi import Header, HTTPException, Depends
-from supabase_client import supabase
+from supabase_client import supabase, supabase_admin
  
-def get_current_user(authorization: str = Header(...)):
+async def get_current_user(authorization: str = Header(...)):
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.replace("Bearer ", "")
  
     try:
         user_response = supabase.auth.get_user(token)
-        user = user_response.user
+        user =  user_response.user
         if not user:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
  
     profile = (
-        supabase.table("profiles")
+        supabase_admin.table("profiles")
         .select("*")
         .eq("id", user.id)
         .single()
