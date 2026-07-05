@@ -48,7 +48,7 @@ def create_supervisor(
 @router.get("/supervisors")
 def list_supervisors(current_user=Depends(require_role("admin"))):
     result = (
-        supabase.table("profiles")
+        supabase_admin.table("profiles")
         .select("id, full_name, department, created_at")
         .eq("role", "supervisor")
         .order("created_at", desc=True)
@@ -62,7 +62,7 @@ def list_supervisors(current_user=Depends(require_role("admin"))):
 @router.get("/technicians/unassigned")
 def list_unassigned(current_user=Depends(require_role("admin"))):
     result = (
-        supabase.table("profiles")
+        supabase_admin.table("profiles")
         .select("*")
         .eq("role", "technician")
         .is_("supervisor_id", "null")
