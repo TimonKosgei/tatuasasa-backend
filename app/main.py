@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, admin, departments, technicians , supervisors, offices, buildings, tickets
+from routers import auth, admin, departments, technicians , supervisors, offices, buildings, tickets, skills
 from supabase_client import supabase_admin, supabase
 
 app = FastAPI(title="Tatua Sasa API")
@@ -21,6 +21,7 @@ app.include_router(supervisors.router)
 app.include_router(buildings.router)
 app.include_router(offices.router)
 app.include_router(tickets.router)
+app.include_router(skills.router)
 
 @app.get("/health")
 def health():
