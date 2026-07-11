@@ -1,7 +1,3 @@
-#list the skill catalog; add new skill types
-#Everyone reads, Admin writes
-
-
 # routers/skills.py
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, field_validator

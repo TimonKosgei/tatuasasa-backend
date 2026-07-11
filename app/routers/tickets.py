@@ -1,6 +1,7 @@
 # routers/tickets.py
 from datetime import datetime, timezone
 from typing import Optional
+import random
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, field_validator, model_validator
@@ -51,6 +52,7 @@ class StatusUpdate(BaseModel):
     status: str
     steps: Optional[list[str]] = None
     comment: Optional[str] = None
+    asset_ids: Optional[list[int]] = None
 
     @field_validator("status")
     @classmethod
@@ -147,14 +149,30 @@ def create_ticket(payload: TicketCreate, current_user=Depends(get_current_user))
         "location_room": payload.location_room,
     }
 
+    # 1. Try to find the best matching technician based on skills/workload
     match = find_best_technician(payload.category)
+    
+    # 2. Fallback: If no match is found, assign randomly to any available technician
+    if not match:
+        available_techs = (
+            supabase_admin.table("profiles")
+            .select("id")
+            .eq("role", "technician")
+            .eq("application_status", "approved")
+            .eq("is_online", True)
+            .execute()
+        )
+        if available_techs.data:
+            chosen_tech = random.choice(available_techs.data)
+            match = chosen_tech["id"]
+
+    # 3. Apply assignment if a technician was found (either via match or fallback)
     if match:
         ticket_row["assigned_to"] = match
         ticket_row["status"] = "assigned"
 
     result = supabase.table("tickets").insert(ticket_row).execute()
     return result.data[0]
-
 
 @router.get("/mine")
 def my_tickets(current_user=Depends(get_current_user)):
@@ -217,6 +235,17 @@ def update_status(ticket_id: int, payload: StatusUpdate, current_user=Depends(ge
         ]
         supabase_admin.table("resolution_steps").insert(rows).execute()
 
+    if payload.status == "resolved" and payload.asset_ids:
+        existing = supabase_admin.table("assets").select("id").in_("id", payload.asset_ids).execute()
+        found_ids = {row["id"] for row in existing.data}
+        missing = set(payload.asset_ids) - found_ids
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Unknown asset id(s): {sorted(missing)}")
+
+        supabase_admin.table("ticket_assets").delete().eq("ticket_id", ticket_id).execute()
+        rows = [{"ticket_id": ticket_id, "asset_id": aid} for aid in payload.asset_ids]
+        supabase_admin.table("ticket_assets").insert(rows).execute()
+
     return {"message": f"Ticket status updated to {payload.status}"}
 
 
@@ -240,7 +269,14 @@ def get_ticket(ticket_id: int, current_user=Depends(get_current_user)):
         .execute()
     )
 
-    return {**ticket.data, "resolution_steps": steps.data}
+    linked = supabase_admin.table("ticket_assets").select("asset_id").eq("ticket_id", ticket_id).execute()
+    asset_ids = [row["asset_id"] for row in linked.data]
+    assets_data = []
+    if asset_ids:
+        assets_result = supabase_admin.table("assets").select("id, name, asset_tag").in_("id", asset_ids).execute()
+        assets_data = assets_result.data
+
+    return {**ticket.data, "resolution_steps": steps.data, "affected_assets": assets_data}
 
 
 @router.patch("/{ticket_id}/assign", dependencies=[Depends(require_role("supervisor", "admin"))])

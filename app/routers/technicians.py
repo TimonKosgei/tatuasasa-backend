@@ -110,7 +110,7 @@ def apply_as_technician(payload: ApplyRequest, current_user=Depends(get_current_
     ]
     supabase_admin.table("technician_skills").insert(rows).execute()
 
-    supabase_admin  .table("profiles").update({
+    supabase_admin.table("profiles").update({
         "application_status": "pending",
         "requested_role": "technician",
         "supervisor_id": payload.supervisor_id,
