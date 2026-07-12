@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
-from deps import require_role
+from deps import get_current_user, require_role
 from supabase_client import supabase
 from supabase_client import supabase_admin
 
@@ -108,3 +108,9 @@ def assign_supervisor(
     ).eq("id", tech_id).execute()
 
     return {"message": "Supervisor assigned"}
+
+@router.get("/public/supervisors")
+def list_available_supervisors(current_user=Depends(get_current_user)):
+    """Exposes a clean list of supervisors for staff application routing."""
+    result = supabase_admin.table("profiles").select("id, full_name").eq("role", "supervisor").execute()
+    return result.data
