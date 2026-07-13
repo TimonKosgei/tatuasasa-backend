@@ -1,4 +1,5 @@
 # routers/technicians.py
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, field_validator
 from typing import List
@@ -15,6 +16,24 @@ def _proficiency_to_level(p: str) -> int:
 
 def _level_to_proficiency(level: int) -> str:
     return {1: "beginner", 2: "intermediate", 3: "expert"}[level]
+
+
+def _format_relative_time(timestamp: str | None) -> str:
+    if not timestamp:
+        return "Recently"
+
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "Recently"
+
+    now = datetime.now(timezone.utc)
+    delta_days = (now - parsed.astimezone(timezone.utc)).days
+    if delta_days <= 0:
+        return "Today"
+    if delta_days == 1:
+        return "Yesterday"
+    return f"{delta_days} days ago"
 
 
 def _fetch_my_skills(user_id: str):
@@ -124,6 +143,70 @@ def apply_as_technician(payload: ApplyRequest, current_user=Depends(get_current_
 @router.get("/skills", dependencies=[Depends(require_role("technician"))])
 def list_my_skills(current_user=Depends(get_current_user)):
     return _fetch_my_skills(current_user["id"])
+
+
+@router.get("/me/dashboard", dependencies=[Depends(require_role("technician"))])
+def get_my_dashboard(current_user=Depends(get_current_user)):
+    user_id = current_user["id"]
+    profile = current_user["profile"]
+
+    skills = _fetch_my_skills(user_id)
+
+    resolved_tickets = (
+        supabase_admin.table("tickets")
+        .select("id, title, resolved_at")
+        .eq("assigned_to", user_id)
+        .eq("status", "resolved")
+        .order("resolved_at", desc=True)
+        .execute()
+    )
+
+    solved = [
+        {
+            "title": ticket.get("title") or f"Resolved ticket #{ticket['id']}",
+            "when": _format_relative_time(ticket.get("resolved_at")),
+        }
+        for ticket in (resolved_tickets.data or [])
+    ]
+
+    leaderboard_rows = []
+    ticket_counts = {}
+    for ticket in (supabase_admin.table("tickets").select("assigned_to").eq("status", "resolved").execute().data or []):
+        assigned_to = ticket.get("assigned_to")
+        if assigned_to:
+            ticket_counts[assigned_to] = ticket_counts.get(assigned_to, 0) + 1
+
+    if ticket_counts:
+        profile_ids = list(ticket_counts.keys())
+        profiles_result = (
+            supabase_admin.table("profiles")
+            .select("id, full_name")
+            .in_("id", profile_ids)
+            .execute()
+        )
+        profile_map = {row["id"]: row.get("full_name") or "Technician" for row in profiles_result.data or []}
+
+        ranked = sorted(ticket_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        leaderboard_rows = [
+            {
+                "name": profile_map.get(user_id, "Technician"),
+                "count": count,
+            }
+            for user_id, count in ranked
+        ]
+
+    current_user_entry = {
+        "name": profile.get("full_name") or "You",
+        "count": len(solved),
+    }
+    if not any(item["name"] == current_user_entry["name"] for item in leaderboard_rows):
+        leaderboard_rows.insert(0, current_user_entry)
+
+    return {
+        "skills": skills,
+        "solved": solved,
+        "leaderboard": leaderboard_rows[:5],
+    }
 
 
 @router.post("/skills", dependencies=[Depends(require_role("technician"))])
